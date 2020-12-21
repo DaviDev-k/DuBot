@@ -11,12 +11,12 @@
 
 
 // Pin
-const int PIN_MOTOR_L1 = 2;
-const int PIN_MOTOR_L2 = 3;
-const int PIN_MOTOR_R1 = 4;
-const int PIN_MOTOR_R2 = 5;
-const int PIN_BT_TX = 12;
-const int PIN_BT_RX = 13;
+#define PIN_MOTOR_L1 3
+#define PIN_MOTOR_L2 8
+#define PIN_MOTOR_R1 2
+#define PIN_MOTOR_R2 11
+#define PIN_BT_RX 12
+#define PIN_BT_TX 13
 
 
 // Direzioni
@@ -28,12 +28,11 @@ enum DirLR {
 };
 
 
-
 // Classe che specifica i pin e gli stati di un motore
 class Motor {
 
-    // Pin di input
-    int in1, in2;
+    // Pin di output
+    int out1, out2;
 
 private:
 
@@ -42,8 +41,8 @@ private:
 
 public:
 
-    // Costruttore - Inizializza il motore
-    Motor(int i1, int i2);
+    // Costruttore
+    Motor(int o1, int o2);
 
     // Movimento
     void move(DirFB dir);
@@ -53,23 +52,22 @@ public:
 
 };
 
-
-// Costruttore - Inizializza il motore
-Motor::Motor(int i1, int i2) {
-    in1 = i1;
-    in2 = i2;
-    pinMode(in1, OUTPUT);
-    pinMode(in2, OUTPUT);
+// Costruttore - Inizializza i pin e il motore
+Motor::Motor(int o1, int o2) {
+    out1 = o1;
+    out2 = o2;
+    pinMode(out1, OUTPUT);
+    pinMode(out2, OUTPUT);
     stop();
 }
 
 // Setta i pin ai valori specificati
 void Motor::bridgeH(uint8_t val1, uint8_t val2) {
-    digitalWrite(in1, val1);
-    digitalWrite(in2, val2);
+    digitalWrite(out1, val1);
+    digitalWrite(out2, val2);
 }
 
-// Movimento
+// Movimento avanti o indietro
 void Motor::move(DirFB dir) {
     if (dir == FORTH)
         bridgeH(HIGH, LOW);
@@ -77,19 +75,18 @@ void Motor::move(DirFB dir) {
         bridgeH(LOW, HIGH);
 }
 
-// Fermo
+// Ferma il motore
 void Motor::stop() {
     bridgeH(LOW, LOW);
 }
-
 
 
 // Classe dell'intero robottino che comprende tutti i componenti
 class DuBot {
 
     // Motori sinistro e destro
-    Motor mL = Motor(PIN_MOTOR_L1, PIN_MOTOR_L2);
-    Motor mR = Motor(PIN_MOTOR_R1, PIN_MOTOR_R2);
+    Motor mL;
+    Motor mR;
 
 public:
 
@@ -99,14 +96,14 @@ public:
     // Movimento in avanti o indietro
     void move(DirFB dir);
 
-    // Fermo
-    void stop();
-
-    // Gira a sinistra o destra (stretta)
+    // Gira a sinistra o destra
     void rotate(DirLR dir);
 
-    // Curva a sinistra o destra (larga)
+    // Curva a sinistra o destra
     void curve(DirLR dir);
+
+    // Fermo
+    void stop();
 
     // Esecuzione casuale
     void dance(int times);
@@ -114,7 +111,8 @@ public:
 };
 
 // Costruttore - Ferma DuBot
-DuBot::DuBot() {
+DuBot::DuBot() : mL(PIN_MOTOR_L1, PIN_MOTOR_L2),
+                 mR(PIN_MOTOR_R1, PIN_MOTOR_R2) {
     stop();
 }
 
@@ -124,13 +122,13 @@ void DuBot::move(DirFB dir) {
     mR.move(dir);
 }
 
-// Fermo
+// Ferma DuBot
 void DuBot::stop() {
     mL.stop();
     mR.stop();
 }
 
-// Ruota a sinistra o destra (stretta)
+// Gira a sinistra o destra (stretta)
 void DuBot::rotate(DirLR dir) {
     mL.move(dir == LEFT ? BACK : FORTH);
     mR.move(dir == RIGHT ? BACK : FORTH);
@@ -143,8 +141,8 @@ void DuBot::curve(DirLR dir) {
         mR.move(FORTH);
     }
     if (dir == RIGHT) {
-        mR.stop();
         mL.move(FORTH);
+        mR.stop();
     }
 }
 
@@ -167,11 +165,10 @@ void DuBot::dance(int times) {
 }
 
 
-
 DuBot bot;
 
 // Bluethoot
-SoftwareSerial bt(PIN_BT_RX, PIN_BT_TX);
+SoftwareSerial bt(PIN_BT_TX, PIN_BT_RX);
 
 
 void setup() {
@@ -182,31 +179,33 @@ void setup() {
 
 void loop() {
 
-    String btRead = bt.readString(); // legge il seriale bt
-
-    switch (btRead[0]) { // primo carattere
-        case 'F':  // forth
+    switch (bt.read()) {  // Comando bluetooth
+        case 'F':  // Avanti
             bot.move(FORTH);
             break;
-        case 'B':  // back
+        case 'B':  // Indietro
             bot.move(BACK);
             break;
-        case 'l':  // gira a sinistra
+        case 'L':  // Gira a sinistra
             bot.rotate(LEFT);
             break;
-        case 'r':  // gira a destra
+        case 'R':  // Gira a destra
             bot.rotate(RIGHT);
             break;
-        case 'L':  // curva a sinistra
+        case 'l':  // Curva a sinistra
             bot.curve(LEFT);
             break;
-        case 'R':  // curva a destra
+        case 'r':  // Curva a destra
             bot.curve(RIGHT);
             break;
-        case 'S':  // stop
+        case 'S':  // Stop
             bot.stop();
+            break;
+        case 'D':  // Dance
+            bot.dance(8);
+            break;
     }
 
-    delay(2000);
+    delay(10);
 
 }
