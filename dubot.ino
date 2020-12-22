@@ -15,6 +15,8 @@
 #define PIN_MOTOR_L2 8
 #define PIN_MOTOR_R1 2
 #define PIN_MOTOR_R2 11
+#define PIN_US_TRIG 9
+#define PIN_US_ECHO 10
 #define PIN_BT_RX 12
 #define PIN_BT_TX 13
 
@@ -90,6 +92,9 @@ class DuBot {
 
 public:
 
+    // Bluethoot
+    SoftwareSerial bt;
+
     // Costruttore - Inizializza DuBot e i suoi componenti
     DuBot();
 
@@ -112,7 +117,10 @@ public:
 
 // Costruttore - Ferma DuBot
 DuBot::DuBot() : mL(PIN_MOTOR_L1, PIN_MOTOR_L2),
-                 mR(PIN_MOTOR_R1, PIN_MOTOR_R2) {
+                 mR(PIN_MOTOR_R1, PIN_MOTOR_R2),
+                 bt(PIN_BT_TX, PIN_BT_RX) {
+    bt.begin(9600);
+    bt.println("Connesso a DuBot");
     stop();
 }
 
@@ -167,19 +175,51 @@ void DuBot::dance(int times) {
 
 DuBot bot;
 
-// Bluethoot
-SoftwareSerial bt(PIN_BT_TX, PIN_BT_RX);
-
 
 void setup() {
-    bt.begin(9600);
-    bt.println("Connesso a DuBot");
+
+    // Ultrasuoni
+    pinMode(PIN_US_TRIG, OUTPUT);
+    pinMode(PIN_US_ECHO, INPUT);
+    digitalWrite(PIN_US_TRIG, LOW);
+    digitalWrite(PIN_US_ECHO, LOW);
 }
 
 
 void loop() {
+    bool obstacle;
+    do {
+        obstacle = false;
+        // Invia un impulso di 10 μs sul pin trigger
+        digitalWrite(PIN_US_TRIG, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(PIN_US_TRIG, LOW);
 
-    switch (bt.read()) {  // Comando bluetooth
+        // Riceve il numero di μs per i quali il pin echo e' rimasto allo stato HIGH
+        int time = pulseIn(PIN_US_ECHO, HIGH);
+
+        // La velocita' del suono e' di 340 metri al secondo, o 29 microsecondi al centimetro.
+        // il nostro impulso viaggia in andata e ritorno, quindi per calcoalre la distanza
+        // tra il sensore e il nostro ostacolo occorre fare:
+        int space = time / 29 / 2;
+
+        bot.bt.print(space);
+        bot.bt.println(" cm");
+
+
+//        bot.move(BACK);
+//        delay(1000);
+        if (space < 20) {
+            bot.rotate(LEFT);
+            obstacle = true;
+        }
+//        delay(4000);
+    } while (obstacle);
+
+
+    bot.move(FORTH);
+
+    switch (bot.bt.read()) {  // Comando bluetooth
         case 'F':  // Avanti
             bot.move(FORTH);
             break;
