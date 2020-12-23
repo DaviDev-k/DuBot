@@ -22,14 +22,15 @@
 
 
 // Direzioni
-enum DirFB {
+enum dirFB {
     FORTH, BACK
 };
-enum DirLR {
+enum dirLR {
     LEFT, RIGHT
 };
 
 
+/**************** MOTOR ****************/
 // Classe che specifica i pin e gli stati di un motore
 class Motor {
 
@@ -47,7 +48,7 @@ public:
     Motor(int o1, int o2);
 
     // Movimento
-    void move(DirFB dir);
+    void move(dirFB dir);
 
     // Fermo
     void stop();
@@ -70,7 +71,7 @@ void Motor::bridgeH(uint8_t val1, uint8_t val2) {
 }
 
 // Movimento avanti o indietro
-void Motor::move(DirFB dir) {
+void Motor::move(dirFB dir) {
     if (dir == FORTH)
         bridgeH(HIGH, LOW);
     if (dir == BACK)
@@ -83,6 +84,43 @@ void Motor::stop() {
 }
 
 
+/**************** ULTRA ****************/
+// Ultrasuoni
+class Ultra {
+
+public:
+
+    // Costruttore - Setta i pin
+    Ultra();
+
+    // Calcola la distanza dell'ostacolo
+    int distance();
+
+};
+
+// Costruttore - Setta i pin
+Ultra::Ultra() {
+    pinMode(PIN_US_TRIG, OUTPUT);
+    pinMode(PIN_US_ECHO, INPUT);
+    digitalWrite(PIN_US_TRIG, LOW);
+    digitalWrite(PIN_US_ECHO, LOW);
+}
+
+int Ultra::distance() {
+    // Invia un impulso di 10 μs sul pin trigger
+    digitalWrite(PIN_US_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_US_TRIG, LOW);
+
+    // Riceve metà del tempo in μs per i quali il pin echo e' rimasto allo stato HIGH
+    int time = pulseIn(PIN_US_ECHO, HIGH) / 2;
+
+    // La velocita' del suono e' di 340 metri al secondo (340 m/s = 0.00340 cm/μs)
+    return time * 3.40e-2;
+}
+
+
+/**************** DUBOT ****************/
 // Classe dell'intero robottino che comprende tutti i componenti
 class DuBot {
 
@@ -92,26 +130,38 @@ class DuBot {
 
 public:
 
+    // Stato
+    bool moving;
     // Bluethoot
     SoftwareSerial bt;
+    // Ultrasuoni
+    Ultra us;
+
+public:
 
     // Costruttore - Inizializza DuBot e i suoi componenti
     DuBot();
 
     // Movimento in avanti o indietro
-    void move(DirFB dir);
+    void move(dirFB dir);
 
     // Gira a sinistra o destra
-    void rotate(DirLR dir);
+    void rotate(dirLR dir);
 
     // Curva a sinistra o destra
-    void curve(DirLR dir);
+    void curve(dirLR dir);
 
     // Fermo
     void stop();
 
     // Esecuzione casuale
     void dance(int times);
+
+    // Evita gli ostacoli
+    void escapeObstacle(const int DIST);
+
+    // Esegue i comandi inviati dal bluetooth
+    void runBTcommand();
 
 };
 
@@ -125,25 +175,29 @@ DuBot::DuBot() : mL(PIN_MOTOR_L1, PIN_MOTOR_L2),
 }
 
 // Movimento in avanti o indietro
-void DuBot::move(DirFB dir) {
+void DuBot::move(dirFB dir) {
+    moving = true;
     mL.move(dir);
     mR.move(dir);
 }
 
 // Ferma DuBot
 void DuBot::stop() {
+    moving = false;
     mL.stop();
     mR.stop();
 }
 
 // Gira a sinistra o destra (stretta)
-void DuBot::rotate(DirLR dir) {
+void DuBot::rotate(dirLR dir) {
+    moving = false;
     mL.move(dir == LEFT ? BACK : FORTH);
     mR.move(dir == RIGHT ? BACK : FORTH);
 }
 
 // Curva a sinistra o destra (larga)
-void DuBot::curve(DirLR dir) {
+void DuBot::curve(dirLR dir) {
+    moving = true;
     if (dir == LEFT) {
         mL.stop();
         mR.move(FORTH);
@@ -154,7 +208,9 @@ void DuBot::curve(DirLR dir) {
     }
 }
 
+// Esecuzione casuale
 void DuBot::dance(int times) {
+    moving = true;
     for (int i = 0; i < times; i++) {
         int dir = random(0, 2);
         switch (random(0, 3)) {
@@ -172,80 +228,74 @@ void DuBot::dance(int times) {
     }
 }
 
+// Sfugge agli ostacoli più vicini della distanza specificata
+void DuBot::escapeObstacle(const int DIST) {
 
-DuBot bot;
+    bool obstacle;      // true fintanto che e' presente un ostacolo
+    bool loop = false;  // true quando è entrato in loop per evitare un ostacolo
 
-
-void setup() {
-
-    // Ultrasuoni
-    pinMode(PIN_US_TRIG, OUTPUT);
-    pinMode(PIN_US_ECHO, INPUT);
-    digitalWrite(PIN_US_TRIG, LOW);
-    digitalWrite(PIN_US_ECHO, LOW);
-}
-
-
-void loop() {
-    bool obstacle;
+    // Ruota a sinista se è presente un oggetto entro una distanza specificata
     do {
-        obstacle = false;
-        // Invia un impulso di 10 μs sul pin trigger
-        digitalWrite(PIN_US_TRIG, HIGH);
-        delayMicroseconds(10);
-        digitalWrite(PIN_US_TRIG, LOW);
 
-        // Riceve il numero di μs per i quali il pin echo e' rimasto allo stato HIGH
-        int time = pulseIn(PIN_US_ECHO, HIGH);
+        int distance = us.distance();
+        bt.println(distance);
+        bt.println(" cm");
 
-        // La velocita' del suono e' di 340 metri al secondo, o 29 microsecondi al centimetro.
-        // il nostro impulso viaggia in andata e ritorno, quindi per calcoalre la distanza
-        // tra il sensore e il nostro ostacolo occorre fare:
-        int space = time / 29 / 2;
-
-        bot.bt.print(space);
-        bot.bt.println(" cm");
-
-
-//        bot.move(BACK);
-//        delay(1000);
-        if (space < 20) {
-            bot.rotate(LEFT);
-            obstacle = true;
+        obstacle = distance < DIST;
+        if (obstacle) {
+            rotate(LEFT);
+            loop = true;
         }
-//        delay(4000);
+
     } while (obstacle);
 
+    // Va avanti solo dopo aver evitato un ostacolo, altrimenti non cambia marcia
+    if (loop)
+        move(FORTH);
 
-    bot.move(FORTH);
+}
 
-    switch (bot.bt.read()) {  // Comando bluetooth
+void DuBot::runBTcommand() {
+
+    switch (bt.read()) {  // Comando bluetooth
         case 'F':  // Avanti
-            bot.move(FORTH);
+            move(FORTH);
             break;
         case 'B':  // Indietro
-            bot.move(BACK);
+            move(BACK);
             break;
         case 'L':  // Gira a sinistra
-            bot.rotate(LEFT);
+            rotate(LEFT);
             break;
         case 'R':  // Gira a destra
-            bot.rotate(RIGHT);
+            rotate(RIGHT);
             break;
         case 'l':  // Curva a sinistra
-            bot.curve(LEFT);
+            curve(LEFT);
             break;
         case 'r':  // Curva a destra
-            bot.curve(RIGHT);
+            curve(RIGHT);
             break;
         case 'S':  // Stop
-            bot.stop();
+            stop();
             break;
         case 'D':  // Dance
-            bot.dance(8);
+            dance(8);
             break;
     }
 
-    delay(10);
+}
 
+
+/**************** ARDUINO ****************/
+
+DuBot bot;
+
+void setup() {}
+
+void loop() {
+    if (bot.moving)
+        bot.escapeObstacle(30);
+    bot.runBTcommand();
+    delay(10);
 }
