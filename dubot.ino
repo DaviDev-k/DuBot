@@ -176,7 +176,7 @@ DuBot::DuBot() : mL(PIN_MOTOR_L1, PIN_MOTOR_L2),
 
 // Movimento in avanti o indietro
 void DuBot::move(dirFB dir) {
-    moving = true;
+    moving = (dir == FORTH);
     mL.move(dir);
     mR.move(dir);
 }
@@ -241,7 +241,7 @@ void DuBot::escapeObstacle(const int DIST) {
         bt.println(distance);
         bt.println(" cm");
 
-        obstacle = distance < DIST;
+        obstacle = (distance < DIST);
         if (obstacle) {
             rotate(LEFT);
             loop = true;
