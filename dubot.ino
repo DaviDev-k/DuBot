@@ -11,14 +11,21 @@
 
 
 // Pin
-#define PIN_MOTOR_L1 3
-#define PIN_MOTOR_L2 8
-#define PIN_MOTOR_R1 2
-#define PIN_MOTOR_R2 11
-#define PIN_US_TRIG 9
-#define PIN_US_ECHO 10
-#define PIN_BT_RX 12
-#define PIN_BT_TX 13
+#define PIN_WHEEL_L1 13
+#define PIN_WHEEL_L2 12
+#define PIN_WHEEL_R1 9
+#define PIN_WHEEL_R2 4
+
+#define PIN_CHEST_1 8
+#define PIN_CHEST_2 7
+#define PIN_ARMS_1 11
+#define PIN_ARMS_2 10
+
+#define PIN_US_TRIG 2
+#define PIN_US_ECHO 3
+
+#define PIN_BT_RX 6
+#define PIN_BT_TX 5
 
 
 // Direzioni
@@ -27,6 +34,12 @@ enum dirFB {
 };
 enum dirLR {
     LEFT, RIGHT
+};
+enum chestUD {
+    UP, DOWN
+};
+enum armsOC {
+    OPEN, CLOSE
 };
 
 
@@ -37,10 +50,8 @@ class Motor {
     // Pin di output
     int out1, out2;
 
-private:
-
     // Setta i pin ai valori specificati
-    void bridgeH(uint8_t val1, uint8_t val2);
+    void setBridgeH(uint8_t val1, uint8_t val2);
 
 public:
 
@@ -48,7 +59,7 @@ public:
     Motor(int o1, int o2);
 
     // Movimento
-    void move(dirFB dir);
+    void move(bool dir);
 
     // Fermo
     void stop();
@@ -65,22 +76,22 @@ Motor::Motor(int o1, int o2) {
 }
 
 // Setta i pin ai valori specificati
-void Motor::bridgeH(uint8_t val1, uint8_t val2) {
+void Motor::setBridgeH(uint8_t val1, uint8_t val2) {
     digitalWrite(out1, val1);
     digitalWrite(out2, val2);
 }
 
 // Movimento avanti o indietro
-void Motor::move(dirFB dir) {
+void Motor::move(bool dir) {
     if (dir == FORTH)
-        bridgeH(HIGH, LOW);
+        setBridgeH(HIGH, LOW);
     if (dir == BACK)
-        bridgeH(LOW, HIGH);
+        setBridgeH(LOW, HIGH);
 }
 
 // Ferma il motore
 void Motor::stop() {
-    bridgeH(LOW, LOW);
+    setBridgeH(LOW, LOW);
 }
 
 
@@ -125,17 +136,21 @@ int Ultra::distance() {
 class DuBot {
 
     // Motori sinistro e destro
-    Motor mL;
-    Motor mR;
+    Motor wheelL;
+    Motor wheelR;
+    Motor chest;
+    Motor arms;
 
 public:
 
+    // Evita gli ostacoli
+    bool useUltra;
     // Stato
-    bool moving;
+    bool isMoving;
     // Bluethoot
     SoftwareSerial bt;
     // Ultrasuoni
-    Ultra us;
+    Ultra ultra;
 
 public:
 
@@ -161,56 +176,61 @@ public:
     void escapeObstacle(const int DIST);
 
     // Esegue i comandi inviati dal bluetooth
-    void runBTcommand();
+    void runBTcommand(char cmd);
 
 };
 
 // Costruttore - Ferma DuBot
-DuBot::DuBot() : mL(PIN_MOTOR_L1, PIN_MOTOR_L2),
-                 mR(PIN_MOTOR_R1, PIN_MOTOR_R2),
+DuBot::DuBot() : wheelL(PIN_WHEEL_L1, PIN_WHEEL_L2),
+                 wheelR(PIN_WHEEL_R1, PIN_WHEEL_R2),
+                 chest(PIN_CHEST_1, PIN_CHEST_2),
+                 arms(PIN_ARMS_1, PIN_ARMS_2),
                  bt(PIN_BT_TX, PIN_BT_RX) {
     bt.begin(9600);
     bt.println("Connesso a DuBot");
     stop();
+    arms.stop();
+    chest.stop();
+    useUltra = true;
 }
 
 // Movimento in avanti o indietro
 void DuBot::move(dirFB dir) {
-    moving = (dir == FORTH);
-    mL.move(dir);
-    mR.move(dir);
+    isMoving = (dir == FORTH);
+    wheelL.move(dir);
+    wheelR.move(dir);
 }
 
 // Ferma DuBot
 void DuBot::stop() {
-    moving = false;
-    mL.stop();
-    mR.stop();
+    isMoving = false;
+    wheelL.stop();
+    wheelR.stop();
 }
 
 // Gira a sinistra o destra (stretta)
 void DuBot::rotate(dirLR dir) {
-    moving = false;
-    mL.move(dir == LEFT ? BACK : FORTH);
-    mR.move(dir == RIGHT ? BACK : FORTH);
+    isMoving = false;
+    wheelL.move(dir == LEFT ? BACK : FORTH);
+    wheelR.move(dir == RIGHT ? BACK : FORTH);
 }
 
 // Curva a sinistra o destra (larga)
 void DuBot::curve(dirLR dir) {
-    moving = true;
+    isMoving = true;
     if (dir == LEFT) {
-        mL.stop();
-        mR.move(FORTH);
+        wheelL.stop();
+        wheelR.move(FORTH);
     }
     if (dir == RIGHT) {
-        mL.move(FORTH);
-        mR.stop();
+        wheelL.move(FORTH);
+        wheelR.stop();
     }
 }
 
 // Esecuzione casuale
 void DuBot::dance(int times) {
-    moving = true;
+    isMoving = true;
     for (int i = 0; i < times; i++) {
         int dir = random(0, 2);
         switch (random(0, 3)) {
@@ -237,9 +257,9 @@ void DuBot::escapeObstacle(const int DIST) {
     // Ruota a sinista se è presente un oggetto entro una distanza specificata
     do {
 
-        int distance = us.distance();
+        int distance = ultra.distance();
+        bt.print("cm ");
         bt.println(distance);
-        bt.println(" cm");
 
         obstacle = (distance < DIST);
         if (obstacle) {
@@ -255,33 +275,66 @@ void DuBot::escapeObstacle(const int DIST) {
 
 }
 
-void DuBot::runBTcommand() {
+// Esegue i comandi inviati dal bluetooth
+void DuBot::runBTcommand(char cmd) {
 
-    switch (bt.read()) {  // Comando bluetooth
+    switch (cmd) {  // Comando bluetooth
+
         case 'F':  // Avanti
             move(FORTH);
             break;
         case 'B':  // Indietro
             move(BACK);
             break;
+
         case 'L':  // Gira a sinistra
             rotate(LEFT);
             break;
         case 'R':  // Gira a destra
             rotate(RIGHT);
             break;
+
         case 'l':  // Curva a sinistra
             curve(LEFT);
             break;
         case 'r':  // Curva a destra
             curve(RIGHT);
             break;
+
+        case 'U':  // Alza il corpo
+            chest.move(UP);
+            delay(400);
+            chest.stop();
+            break;
+        case 'D':   // Abbassa il corpo
+            chest.move(DOWN);
+            delay(60);
+            chest.stop();
+            break;
+
+        case 'O':   // Apre le braccia
+            arms.move(OPEN);
+            delay(600);
+            arms.stop();
+            break;
+        case 'C':   // Chiude le braccia
+            arms.move(CLOSE);
+            delay(600);
+            arms.stop();
+            break;
+
         case 'S':  // Stop
             stop();
             break;
-        case 'D':  // Dance
+
+        case 'd':  // Dance
             dance(8);
             break;
+
+        case 'u':  // Usa o no ultrasuoni
+            useUltra = !useUltra;
+            break;
+
     }
 
 }
@@ -294,8 +347,8 @@ DuBot bot;
 void setup() {}
 
 void loop() {
-    if (bot.moving)
-        bot.escapeObstacle(30);
-    bot.runBTcommand();
+    if (bot.useUltra && bot.isMoving)
+        bot.escapeObstacle(24);
+    bot.runBTcommand(bot.bt.read());
     delay(10);
 }
